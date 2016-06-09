@@ -1,0 +1,131 @@
+<html lang="en">
+<head>
+<title>Flash Publish</title>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="author" content="Paul Gregoire">
+<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+<link rel="stylesheet" type="text/css" href="default.css">
+<script type="text/javascript" src="swfobject.js"></script>
+<script type="text/javascript">
+    "use strict"
+    // keep track of who we are publisher-wise
+    var streamName = getQueryVariable('streamName');
+    // our channel / room name
+    var channelName = getQueryVariable('channelId');
+    // type of stream for publish and playback
+    var streamType = 'flash';
+
+    // communication channel
+    var wsprotocol = location.protocol == 'https:' ? 'wss' : 'ws';
+    var wsport = location.protocol == 'https:' ? '8083' : '8081';
+    var socket = new WebSocket(wsprotocol + '://' + location.hostname + ':' + wsport + '/webrtc/' + channelName + '?id=' + streamName);
+    
+    // called when the socket opens; this opens the channel / room
+    socket.onopen = function() {
+      console.log('Socket opened');
+    };
+    
+    // messages coming from the websocket
+    socket.onmessage = function(message) {
+      console.log(message);
+      if (message.data) {
+        var json = JSON.parse(message.data);
+        if (json.isAvailable !== undefined) {
+          console.log('Message - isAvailable: ' + json.isAvailable);
+          if (json.isAvailable===true) {
+            alert('Stream: ' + json.streamName + ' is already published');
+          } else {
+            console.log('Stream is not publishing');
+            doPublish(true, streamName);
+          }
+        }
+        if (json.data !== undefined) {
+          if (json.data.message !== undefined) {
+            console.log('Message: ' + json.data.message);
+            if (json.data.type !== 'error') {
+
+            } else {
+              // reset on error
+              if (json.data.detail) {
+                alert('Error: ' + json.data.message + '\n' + json.data.detail);
+              } else {
+                alert('Error: ' + json.data.message);
+              }
+            }
+          }
+        }
+      } else {
+        console.warn('No message data');
+      } 
+    };
+
+    // exits and cleans up
+    function closeAndExit() {
+      if (socket !== undefined) {
+        // disconnect the flash swf
+        document.getElementById(streamName).disconnect();
+        // close
+        console.log('Closing the socket');
+        socket.close();
+      }
+    }
+
+    // publish
+    function doPublish(start, name) {
+      console.log((start ? 'Publish: ' : 'Stop: ') + name);
+      var swf = swfobject.getObjectById(name);
+      //var swf = document.getElementById(name);
+      if (swf !== undefined) {
+        start ? swf.connect(true) : swf.disconnect();
+        console.log("Publishing? " + swf.isPublishing());
+      }
+    }
+
+    function getQueryVariable(variable) {
+        var query = window.location.search.substring(1);
+        var vars = query.split('&');
+        for (var i = 0; i < vars.length; i++) {
+            var pair = vars[i].split('=');
+            if (decodeURIComponent(pair[0]) == variable) {
+                return decodeURIComponent(pair[1]);
+            }
+        }
+        console.log('Query variable %s not found', variable);
+    }
+
+    function log(id, message) {
+      console.log(id + ' - ' + message);
+    }
+</script>
+</head>
+<body>
+<div id="container"></div>
+<script type="text/javascript">
+
+    // construct the divs
+    var div = document.createElement('div');
+    div.id = streamName;
+    div.style.cssText = 'width:320px;height:240px;background:#eee;';
+    document.getElementById('container').appendChild(div);
+    var vid = document.createElement('video');
+    vid.id = streamName + '_vid';
+    vid.autoplay = true;
+    document.getElementById(streamName).appendChild(vid);
+
+    // swf stuff
+    var params={};params.quality="high";params.allowscriptaccess="sameDomain";
+    // participant 1
+    var a1vars={};a1vars.host=location.hostname;a1vars.appName="webrtc";a1vars.roomName=channelName;a1vars.streamName=streamName;
+    var a1attrs={};a1attrs.id=streamName;a1attrs.name=streamName;a1attrs.align="middle";
+    swfobject.embedSWF("publisher.swf", streamName, "320", "240", "11.1.0", "", a1vars, params, a1attrs);
+
+</script>
+Click on the swf to attempt publishing. Additional clicks will try to switch camera inputs.
+<br /><br />
+Control
+<br />
+<button id="closeAndExit" onclick="closeAndExit()">Exit</button>
+</body>
+</html>

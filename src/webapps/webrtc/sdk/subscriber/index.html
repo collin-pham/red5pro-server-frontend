@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang=en>
+  <head>
+      <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+      <link href="lib/videojs/video-js.min.css" rel="stylesheet">
+      <style>
+        body {
+          padding: 10px;
+        }
+        #content {
+          border: 1px solid #ddd;
+          border-radius: 5px;
+          padding: 5px;
+          margin-top: 9px;
+          background-color: #eee;
+          overflow: auto;
+        }
+        #controls {
+          margin-left: 10px;
+        }
+        .tab {
+          border: 1px solid #ddd;
+          border-radius: 5px 5px 0 0;
+          padding: 10px 20px;
+          background-color: #ccc;
+          cursor: pointer;
+        }
+        .tab-selected {
+          background-color: #eee;
+        }
+        #video-container {
+          float: left;
+          margin: 16px;
+        }
+        #auto-form-container {
+          border: 1px solid #ddd;
+          border-radius: 5px;
+          padding: 5px;
+          margin: 16px;
+          background-color: #d8baba;
+          float: left;
+          min-width: 220px;
+        }
+        .auto-order-input {
+          line-height: 32px;
+          padding-left: 10px;
+          margin-right: 10px;
+        }
+      </style>
+  </head>
+  <body>
+    <template id="video-player">
+      <div id="video-container">
+        <video id="red5pro-subscriber" width="600" height="300" class="video-js vjs-default-skin" controls autoplay data-setup="{}">
+        </video>
+      </div>
+    </template>
+    <template id="auto-form">
+      <div id="auto-form-container">
+        <p>
+          <input type="number" min="1" max="3" step="1" name="rtc-input" id="rtc-input" class="auto-order-input" value="1">
+          <label for="rtc-input">WebRTC</label>
+        </p>
+        <p>
+          <input type="number" min="1" max="3" step="1" name="rtmp-input" id="rtmp-input" class="auto-order-input" value="2">
+          <label for="rtmp-input">Flash/RTMP</label>
+        </p>
+        <p>
+          <input type="number" min="1" max="3" step="1" name="hls-input" id="hls-input" class="auto-order-input" value="3">
+          <label for="hls-input">HLS</label>
+        </p>
+        <button id="order-update">Update Order</button>
+      </div>
+    </template>
+    <div id="controls">
+            <span id="auto-tab" class="tab">auto</span>
+            <span id="rtc-tab" class="tab">WebRTC</span>
+            <span id="flash-tab" class="tab">Flash/RTMP</span>
+            <span id="hls-tab" class="tab">HLS</span>
+    </div>
+    <div id="holder">
+      <div id="content"></div>
+    </div>
+    <!-- base videojs -->
+    <script src="lib/videojs/video.min.js"></script>
+    <script src="lib/videojs/videojs-media-sources.min.js"></script>
+    <!-- HLS support -->
+    <script src="lib/videojs/videojs.hls.min.js"></script>
+    <!-- WebRTC Shim -->
+    <script src="http://webrtc.github.io/adapter/adapter-latest.js"></script>
+    <!-- Custom Red5 Pro Player -->
+    <script src="lib/red5pro/red5pro-sdk.js"></script>
+    <script>
+      (function(window) {
+        function getQueryVariable(variable) {
+          var query = window.location.search.substring(1);
+          var vars = query.split('&');
+          for (var i = 0; i < vars.length; i++) {
+            var pair = vars[i].split('=');
+            if (decodeURIComponent(pair[0]) == variable) {
+              return decodeURIComponent(pair[1]);
+            }
+          }
+          return undefined;
+        }
+        window.query = getQueryVariable;
+      }(this));
+    </script>
+    <script>
+      (function(window, red5pro) {
+       'use strict';
+
+        var host = window.query('host') || '10.0.0.4';
+        var streamName = window.query('streamName') || 'publisher2';
+        var channel = window.query('channel');
+        var app = window.query('app') || 'live';
+        var streamType = window.query('streamType') || 'flash';
+        var httpprotocol = window.location.protocol.substring(0, window.location.protocol.length - 1);
+        var httpport = httpprotocol === 'https' ? 443 : 5080;
+        var wsprotocol = window.location.protocol == 'https' ? 'wss' : 'ws';
+        var wsport = window.location.protocol == 'https' ? '8083' : '8081';
+        var rtmpprotocol = window.location.protocol === 'https' ? 'rtmps' : 'rtmp';
+        var rtmpport = window.location.protocol === 'https' ? 1935 : 1935;
+        var view = window.query('view');
+
+        var $content = document.getElementById('content');
+        var $videoTemplate = document.getElementById('video-player');
+        var $autoBtn = document.getElementById('auto-tab');
+        var $rtcBtn = document.getElementById('rtc-tab');
+        var $rtmpBtn = document.getElementById('flash-tab');
+        var $hlsBtn = document.getElementById('hls-tab');
+        var $autoForm = document.getElementById('auto-form');
+
+        var player = undefined;
+        var order = ['rtc', 'rtmp', 'hls'];
+
+        var iceServers = [];
+        var isMoz = !!navigator.mozGetUserMedia
+        if(isMoz) {
+          iceServers.push({urls: 'stun:stun.services.mozilla.com:3478'});
+        }
+        else {
+          iceServers.push({urls: 'stun:stun2.l.google.com:19302'});
+          /**
+            iceServers.push({
+              url: 'stun:' + host + ':3478'
+            });
+            iceServers.push({
+              url: 'turn:' + host + ':3478?transport=udp',
+              credential: 'webrtc',
+              username: 'webrtc'
+            });
+          */
+        }
+
+        var rtmpSource = {
+          protocol: rtmpprotocol,
+          host: host,
+          port: rtmpport,
+          app: app,
+          context: channel,                         // Optional
+          streamName: streamName,
+          mimeType: 'rtmp/flv',                     // default
+// Comment/Uncomment the following to allow for default load of custom SWF in videojs lib.
+          swf: 'lib/red5pro/red5pro-video-js.swf'  // default
+// Comment/Uncomment the following to use red5pro-subscriber.swf which is the "live" SWF from Red5 Pro.
+//          useVideoJS: false                       // default: true
+//          , swf: 'lib/red5pro/red5pro-subscriber.swf'
+        };
+        var hlsSource = {
+          protocol: httpprotocol,
+          host: host,
+          port: httpport,
+          app: app,
+          context: channel,                   // Optional
+          streamName: streamName,
+          mimeType: 'application/x-mpegURL',  // default
+          swf: 'lib/red5pro/red5pro-video-js.swf'        // default
+        };
+        var rtcSource = {
+          protocol: wsprotocol,
+          host: host,
+          port: wsport,
+          app: app,
+          context: channel,                   // Optional
+          subscriptionId: 'subscriber-' + Math.floor(Math.random() * 0x10000).toString(16),
+          streamName: streamName,
+          streamType: streamType,
+          iceServers: iceServers,
+          bandwidth: {
+            audio: 50,
+            video: 256,
+            data: 30 * 1000 * 1000
+          }
+        };
+        var fullSource = {
+          "rtmp": rtmpSource,
+          "rtc": rtcSource,
+          "hls": hlsSource
+        };
+
+        function shutdown(player) {
+          if(player !== undefined) {
+            player.stop();
+            player = undefined;
+          }
+        }
+
+        function emptyContent(container) {
+          removeOrderFormHandlers($orderForm);
+          while(container.hasChildNodes()) {
+            container.removeChild($content.lastChild);
+          }
+        }
+
+        function activeTab(tab) {
+          var btns = [$autoBtn, $rtmpBtn, $rtcBtn, $hlsBtn];
+          while(btns.length > 0) {
+            var btn = btns.shift();
+            btn.classList.remove('tab-selected');
+            if(btn === tab) {
+              btn.classList.add('tab-selected');
+            }
+          }
+        }
+
+        function addPlayer(tmpl, container) {
+          var $el = document.importNode(tmpl.content, true);
+          container.appendChild($el);
+          return $el;
+        }
+
+        function addForm(form, container, order) {
+          var c = form.content;
+          var $form;
+          var i = order.length;
+          var input;
+          var id;
+          while(--i > -1) {
+            id = '#' + [order[i], 'input'].join('-');
+            input = c.querySelector(id);
+            if(input) {
+              input.value = (i+1);
+            }
+          }
+          $form = document.importNode(c, true);
+          container.appendChild($form);
+          addOrderFormHandlers(document.getElementById('order-update'));
+          return $form;
+        }
+
+        var $orderForm;
+        function addOrderFormHandlers($form) {
+          if($form) {
+            $form.addEventListener('click', onOrderFormSubmit);
+            $orderForm = $form;
+          }
+        }
+        function removeOrderFormHandlers($form) {
+          if($form) {
+            $form.removeEventListener('click', onOrderFormSubmit);
+            $orderForm = undefined;
+          }
+        }
+        function onOrderFormSubmit(event) {
+          event.preventDefault();
+          var $form = document.getElementById('auto-form-container');
+          var $inputs = $form.getElementsByTagName('input');
+          var i, length = $inputs.length;
+          for(i = 0; i < length; i++) {
+            order[Number($inputs[i].value) - 1] = $inputs[i].id.split('-')[0];
+          }
+          determineDefaultPlayer();
+          return false;
+        }
+
+        function determineDefaultPlayer() {
+          shutdown(player);
+          emptyContent($content);
+          activeTab($autoBtn);
+          addForm($autoForm, $content, order);
+          addPlayer($videoTemplate, $content);
+
+          var playback = new red5pro.PlaybackView('red5pro-subscriber');
+          var subscriber = new red5pro.Red5ProSubscriber();
+          playback.attachSubscriber(subscriber);
+          subscriber
+            .setPlaybackOrder(order)
+            .init(fullSource)
+            .then(function(selectedPlayer) {
+              console.log('[index.html] - Player found: ' + selectedPlayer.getType())
+              player = selectedPlayer
+              return player.play()
+            })
+            .then(function() {
+              console.log('[index.html] - Playback initiated.')
+            })
+            .catch(function(error) {
+              console.error('Could not set up player in failover.\nReason: ' + error);
+            });
+        }
+
+        function definePlayer(subscriber, tab) {
+          shutdown(player);
+          emptyContent($content);
+          activeTab(tab);
+          addPlayer($videoTemplate, $content);
+
+          var playback = new red5pro.PlaybackView('red5pro-subscriber');
+          playback.attachSubscriber(subscriber);
+          subscriber.play()
+            .then(function(selectedPlayer) {
+              console.log('[index.html] - Player found: ' + selectedPlayer.getType());
+              player = selectedPlayer;
+            })
+            .catch(function(error) {
+              console.error('Could not set up player.\nReason: ' + error);
+            });
+        }
+
+        $autoBtn.addEventListener('click', function() {
+          determineDefaultPlayer();
+        });
+
+        $rtcBtn.addEventListener('click', function() {
+          var subscriber = new red5pro.RTCSubscriber();
+          subscriber.init(rtcSource)
+            .then(function(sub) {
+              definePlayer(sub, $rtcBtn);
+            });
+        });
+
+        $rtmpBtn.addEventListener('click', function() {
+          var subscriber = new red5pro.RTMPSubscriber();
+          subscriber.init(rtmpSource)
+            .then(function(sub) {
+              definePlayer(sub, $rtmpBtn);
+            });
+        });
+
+        $hlsBtn.addEventListener('click', function() {
+          var subscriber = new red5pro.HLSSubscriber();
+          subscriber.init(hlsSource)
+            .then(function(sub) {
+              definePlayer(sub, $hlsBtn);
+          });
+        });
+
+        if (view === 'rtmp') {
+          $rtmpBtn.dispatchEvent(new Event('click'));
+        }
+        else if (view === 'rtc') {
+          $rtcBtn.dispatchEvent(new Event('click'));
+        }
+        else if (view === 'hls') {
+          $hlsBtn.dispatchEvent(new Event('click'));
+        }
+        else {
+          determineDefaultPlayer();
+        }
+
+       }(this, red5prosdk));
+    </script>
+  </body>
+</html>

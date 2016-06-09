@@ -1,0 +1,412 @@
+<!doctype html>
+<!-- usage -->
+<!-- http://localhost:8002/?streamName=publisher2&channel=room1&app=live&host=localhost -->
+<html lang=en>
+  <head>
+      <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+      <style>
+        body {
+          padding: 10px;
+        }
+        #content {
+          border: 1px solid #ddd;
+          border-radius: 5px;
+          padding: 5px;
+          margin-top: 9px;
+          background-color: #eee;
+          overflow: auto;
+        }
+        #controls {
+          margin-left: 10px;
+        }
+        .tab {
+          border: 1px solid #ddd;
+          border-radius: 5px 5px 0 0;
+          padding: 10px 20px;
+          background-color: #ccc;
+          cursor: pointer;
+        }
+        .tab-selected {
+          background-color: #eee;
+        }
+        #video-container {
+          float: left;
+          margin: 16px;
+          width: 320px;
+          height: 240px;
+          background-color: #aaa;
+        }
+        #auto-form-container {
+          border: 1px solid #ddd;
+          border-radius: 5px;
+          padding: 5px;
+          margin: 16px;
+          background-color: #d8baba;
+          float: left;
+          min-width: 220px;
+        }
+        .auto-order-input {
+          line-height: 32px;
+          padding-left: 10px;
+          margin-right: 10px;
+        }
+        .clearfix:after {
+          content: " ";
+          display: block;
+          clear: both;
+        }
+      </style>
+  </head>
+  <body>
+    <template id="video-publisher">
+      <div id="video-container" class="clearfix">
+        <video id="red5pro-publisher" width="320" height="240" autoplay muted></video>
+      </div>
+    </template>
+    <template id="rtc-controls">
+      <div style="text-align: center">
+        <button id="publish-btn">publish</button>
+        <button id="unpublish-btn">unpublish</button>
+      </div>
+    </template>
+    <template id="auto-form">
+      <div id="auto-form-container">
+        <p>
+          <input type="number" min="1" max="2" step="1" name="rtc-input" id="rtc-input" class="auto-order-input" value="1">
+          <label for="rtc-input">WebRTC</label>
+        </p>
+        <p>
+          <input type="number" min="1" max="2" step="1" name="rtmp-input" id="rtmp-input" class="auto-order-input" value="2">
+          <label for="rtmp-input">Flash/RTMP</label>
+        </p>
+        <button id="order-update">Update Order</button>
+      </div>
+    </template>
+    <div id="controls">
+            <span id="auto-tab" class="tab">auto</span>
+            <span id="rtc-tab" class="tab">WebRTC</span>
+            <span id="flash-tab" class="tab">Flash/RTMP</span>
+    </div>
+    <div id="holder">
+      <div id="content"></div>
+    </div>
+    <!-- WebRTC Shim -->
+    <script src="http://webrtc.github.io/adapter/adapter-latest.js"></script>
+    <!-- Cusotm Red5 Pro Publisher -->
+    <script src="lib/red5pro/red5pro-sdk.js"></script>
+    <script>
+      (function(window) {
+        function getQueryVariable(variable) {
+          var query = window.location.search.substring(1);
+          var vars = query.split('&');
+          for (var i = 0; i < vars.length; i++) {
+            var pair = vars[i].split('=');
+            if (decodeURIComponent(pair[0]) == variable) {
+              return decodeURIComponent(pair[1]);
+            }
+          }
+          return undefined;
+        }
+        window.query = getQueryVariable;
+      }(this));
+    </script>
+    <script>
+      (function(window, red5pro) {
+        'use strict';
+
+        var host = window.query('host') || '10.0.0.4';
+        var streamName = window.query('streamName') || 'publisher2';
+        var streamType = window.query('streamType') || 'webrtc';
+        var channel = window.query('channel');
+        var app = window.query('app') || 'live';
+        var httpprotocol = window.location.protocol.substring(0, window.location.protocol.length - 1);
+        var httpport = httpprotocol === 'https' ? 443 : 5080;
+        var wsprotocol = window.location.protocol == 'https' ? 'wss' : 'ws';
+        var wsport = window.location.protocol == 'https' ? '8083' : '8081';
+        var rtmpprotocol = window.location.protocol === 'https' ? 'rtmps' : 'rtmp';
+        var rtmpport = window.location.protocol === 'https' ? 1935 : 1935;
+        var publishAudio = window.query('audio') ? window.query('audio') === 'true' : true;
+        var publishVideo = window.query('video') ? window.query('video') === 'true' : true;
+        var view = window.query('view');
+
+        var $content = document.getElementById('content');
+        var $videoTemplate = document.getElementById('video-publisher');
+        var $rtcControls = document.getElementById('rtc-controls');
+        var $autoBtn = document.getElementById('auto-tab');
+        var $rtcBtn = document.getElementById('rtc-tab');
+        var $rtmpBtn = document.getElementById('flash-tab');
+        var $autoForm = document.getElementById('auto-form');
+
+        var publisher = undefined;
+        var order = ['rtc', 'rtmp'];
+
+        var iceServers = [];
+        var isMoz = !!navigator.mozGetUserMedia;
+        if(isMoz) {
+          iceServers.push({urls: 'stun:stun.services.mozilla.com:3478'});
+        }
+        else {
+          iceServers.push({urls: 'stun:stun2.l.google.com:19302'});
+          /**
+            iceServers.push({
+              url: 'stun:' + host + ':3478'
+            });
+            iceServers.push({
+              url: 'turn:' + host + ':3478?transport=udp',
+              credential: 'webrtc',
+              username: 'webrtc'
+            });
+          */
+        }
+        var rtcSource = {
+          protocol: wsprotocol,
+          port: wsport,
+          host: host,
+          app: app,
+          context: channel,
+          streamName: streamName,
+          streamType: streamType,
+          iceServers: iceServers
+        };
+        var rtmpSource = {
+          protocol: rtmpprotocol,
+          port: rtmpport,
+          host: host,
+          app: app,
+          context: channel,
+          streamName: streamName,
+          swf: 'lib/red5pro/red5pro-publisher.swf'
+        };
+        if (!publishAudio) {
+          rtcSource.audioConstraints = false;
+        }
+        if (!publishVideo) {
+          rtcSource.videoConstraints = false;
+        }
+        var fullSource = {
+          rtc: rtcSource,
+          rtmp: rtmpSource
+        };
+
+        function shutdown(publisher) {
+          var $rtcPublishBtn = document.getElementById('publish-btn');
+          if (publisher !== undefined) {
+            publisher.unpublish();
+            publisher = undefined;
+          }
+          if ($rtcPublishBtn) {
+            $rtcPublishBtn.removeEventListener('click', rtcPublish)
+          }
+        }
+
+        function emptyContent(container) {
+          removeOrderFormHandlers($orderForm);
+          removeRtcControls()
+          while(container.hasChildNodes()) {
+            container.removeChild($content.lastChild);
+          }
+        }
+
+        function activeTab(tab) {
+          var btns = [$autoBtn, $rtmpBtn, $rtcBtn];
+          while(btns.length > 0) {
+            var btn = btns.shift();
+            btn.classList.remove('tab-selected');
+            if(btn === tab) {
+              btn.classList.add('tab-selected');
+            }
+          }
+        }
+
+        function addPublisher(tmpl, container) {
+          var $el = document.importNode(tmpl.content, true);
+          container.appendChild($el);
+          return $el;
+        }
+
+        function addRtcControls(tmpl, container) {
+          var $el = document.importNode(tmpl.content, true);
+          container.appendChild($el);
+          document.getElementById('publish-btn').addEventListener('click', rtcPublish);
+          document.getElementById('unpublish-btn').addEventListener('click', rtcUnpublish);
+          return $el;
+        }
+
+        function removeRtcControls() {
+          if (document.getElementById('publish-btn')) {
+            document.getElementById('publish-btn').addEventListener('click', rtcPublish);
+          }
+          if (document.getElementById('unpublish-btn')) {
+            document.getElementById('unpublish-btn').addEventListener('click', rtcUnpublish);
+          }
+        }
+
+        function addForm(form, container, order) {
+          var c = form.content;
+          var $form;
+          var i = order.length;
+          var input;
+          var id;
+          while(--i > -1) {
+            id = '#' + [order[i], 'input'].join('-');
+            input = c.querySelector(id);
+            if(input) {
+              input.value = (i+1);
+            }
+          }
+          $form = document.importNode(c, true);
+          container.appendChild($form);
+          addOrderFormHandlers(document.getElementById('order-update'));
+          return $form;
+        }
+
+        var $orderForm;
+        function addOrderFormHandlers($form) {
+          if($form) {
+            $form.addEventListener('click', onOrderFormSubmit);
+            $orderForm = $form;
+          }
+        }
+        function removeOrderFormHandlers($form) {
+          if($form) {
+            $form.removeEventListener('click', onOrderFormSubmit);
+            $orderForm = undefined;
+          }
+        }
+        function onOrderFormSubmit(event) {
+          event.preventDefault();
+          var $form = document.getElementById('auto-form-container');
+          var $inputs = $form.getElementsByTagName('input');
+          var i, length = $inputs.length;
+          for(i = 0; i < length; i++) {
+            order[Number($inputs[i].value) - 1] = $inputs[i].id.split('-')[0];
+          }
+          determineDefaultPublisher();
+          return false;
+        }
+
+        function determineDefaultPublisher () {
+          shutdown(publisher);
+          emptyContent($content);
+          activeTab($autoBtn);
+          addForm($autoForm, $content, order)
+          addPublisher($videoTemplate, $content);
+
+          var publisherView = new red5pro.PublisherView('red5pro-publisher');
+          var broadcaster = new red5pro.Red5ProPublisher(fullSource);
+          publisherView.attachPublisher(broadcaster);
+          broadcaster.setPublishOrder(order)
+                  .init()
+                  .then(function(selectedPublisher) {
+                    console.log('[index.html] - Publisher found: ' + selectedPublisher.getType())
+                    if (selectedPublisher.getType().toLowerCase() === 'rtc') {
+                      navigator.getUserMedia({
+                        audio: true,
+                        video: true
+                      }, function (media) {
+                        selectedPublisher.attachStream(media)
+                        publisherView.preview(media);
+                      }, function (error) {
+                        console.error(error);
+                      });
+                      addRtcControls($rtcControls, document.getElementById('video-container'));
+                    }
+                    else {
+                      selectedPublisher.publish()
+                    }
+                    publisher = selectedPublisher
+                  })
+                  .catch(function(error) {
+                    console.error('Could not set up publisher in failover.\nReason: ' + error);
+                  });
+        }
+
+        function rtcPublish () {
+          publisher.publish().then(function() {
+            console.log('[index.html] - Publish started.');
+          })
+          .catch(function(err) {
+            console.error('[index.html] - Publish failed: ' + err);
+          });
+        }
+
+        function rtcUnpublish () {
+          publisher.unpublish().then(function() {
+            console.log('[index.html] - Unpublish complete.');
+          })
+          .catch(function(err) {
+            console.error('[index.html] - Unpublish failed: ' + err);
+          });
+
+        }
+
+        $autoBtn.addEventListener('click', function() {
+          determineDefaultPublisher();
+        });
+
+        $rtcBtn.addEventListener('click', function() {
+          shutdown(publisher);
+          emptyContent($content);
+          activeTab($rtcBtn);
+          addPublisher($videoTemplate, $content);
+
+          var pub = new red5pro.RTCPublisher();
+          var publishView = new red5pro.PublisherView('red5pro-publisher');
+          navigator.getUserMedia({
+            audio: true,
+            video: true
+          }, function (media) {
+            pub.attachStream(media)
+            publishView.preview(media);
+          }, function (error) {
+            console.error(error);
+          });
+          publishView.attachPublisher(pub);
+
+          pub.init(rtcSource)
+            .then(function(b) {
+              console.log('[index.html] - Publisher found: ' + b.getType());
+              publisher = b;
+              addRtcControls($rtcControls, document.getElementById('video-container'));
+            })
+            .catch(function(error) {
+              console.error('Could not set up publisher:\nReason: ' + error);
+            });
+        });
+
+        $rtmpBtn.addEventListener('click', function() {
+          shutdown(publisher);
+          emptyContent($content);
+          activeTab($rtmpBtn);
+          addPublisher($videoTemplate, $content);
+
+          var pub = new red5pro.RTMPPublisher();
+          var publishView = new red5pro.PublisherView('red5pro-publisher');
+          publishView.attachPublisher(pub)
+          pub.init(rtmpSource)
+            .then(function(b) {
+              console.log('[index.html] - Publisher found: ' + b.getType());
+              publisher = b;
+              publisher.publish();
+            })
+            .catch(function(error) {
+              console.error('Could not set up publisher:\nReason: ' + error);
+            });
+        });
+
+        if (view === 'rtmp') {
+          $rtmpBtn.dispatchEvent(new Event('click'));
+        }
+        else if (view === 'rtc') {
+          $rtcBtn.dispatchEvent(new Event('click'));
+        }
+        else {
+          determineDefaultPublisher();
+        }
+
+      }(this, red5prosdk));
+    </script>
+  </body>
+</html>

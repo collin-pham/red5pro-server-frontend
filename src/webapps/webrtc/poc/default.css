@@ -1,0 +1,24 @@
+#container {
+	width:1280px;
+	margin-left:auto;
+	margin-right:auto;
+}
+.field_name {
+	background-color:#f2f2f2;
+	font-family:Arial, Helvetica, sans-serif;
+	color:#000000;
+	font-size:14px;
+	padding-top:4px;
+}
+.field_status {
+	background-color:#f2f2f2;
+	font-family:Arial, Helvetica, sans-serif;
+	font-size:12px;
+	text-transform:uppercase;
+	color:#999999;
+	padding:0px;
+}
+video {
+  width:320px;
+  height:240px;
+}

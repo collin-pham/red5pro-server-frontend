@@ -1,0 +1,277 @@
+<html lang="en">
+<head>
+<title>RTC Viewer</title>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="author" content="Paul Gregoire">
+<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+<link rel="stylesheet" type="text/css" href="default.css">
+<script src="RTCPeerConnection-v1.6.js"></script>
+<script type="text/javascript">
+    "use strict"
+    // subscriber id
+    var subscriberId = 'subscriber-' + Math.floor(Math.random() * 0x10000).toString(16);
+    // stream name we'll be playing / viewing
+    var streamName = getQueryVariable('streamName');
+    // our channel / room name
+    var channelName = getQueryVariable('channelId');
+    // source type of stream for playback
+    var streamType = 'flash';
+    // primary peer which sends to the server, not other peers
+    var clientPeer;
+    // the MediaStream
+    var clientStream;
+    
+    // configure ice / turn/stun uris
+    var ice = [];
+    if (window.moz) {
+/*
+        ice.push({
+            urls: 'stun:' + location.hostname + ':3478'
+        });
+        ice.push({
+            urls: 'turn:' + location.hostname + ':3478?transport=udp', credential: 'webrtc', username: 'webrtc'
+        });
+*/
+        // mozilla STUN
+        ice.push({
+            urls: 'stun:stun.services.mozilla.com:3478'
+        });
+    } else {
+/*
+        ice.push({
+            url: 'stun:' + location.hostname + ':3478'
+        });
+        ice.push({
+            url: 'turn:' + location.hostname + ':3478?transport=udp',
+            credential: 'webrtc',
+            username: 'webrtc'
+        });
+*/
+        // google STUN (1...4)
+        ice.push({
+            url: 'stun:stun2.l.google.com:19302'
+        });
+    }
+
+    // communication channel
+    var wsprotocol = location.protocol == 'https:' ? 'wss' : 'ws';
+    var wsport = location.protocol == 'https:' ? '8083' : '8081';
+    var socket = new WebSocket(wsprotocol + '://' + location.hostname + ':' + wsport + '/webrtc/' + channelName + '?id=' + subscriberId);
+    // called when the socket opens; this opens the channel / room
+    socket.onopen = function() {
+      console.log('Socket opened');
+    };
+    
+    // messages coming from the websocket
+    socket.onmessage = function(message) {
+      console.log(message);
+      if (message.data) {
+        var json = JSON.parse(message.data);
+        if (json.isAvailable !== undefined) {
+          console.log('Message - isAvailable: ' + json.isAvailable);
+          if (json.isAvailable) {
+            console.log(json.streamName + ' is publishing');
+            setTimeout(function(){
+              console.log('Sending request for offer sdp');
+              socket.send(JSON.stringify({
+                requestOffer: streamName,
+                requestId: subscriberId
+              }));
+            }, 200);
+          } else {
+            console.log('Stream is not available');
+          }
+        }
+        if (json.data !== undefined) {
+          if (json.data.message !== undefined) {
+            console.log('Message: ' + json.data.message);
+            if (json.data.type === 'error') {
+              if (json.data.detail) {
+                console.warn('Error: ' + json.data.message + '\n' + json.data.detail);
+              } else {
+                console.warn('Error: ' + json.data.message);
+              }
+            }
+          }  
+          // data for the client peer
+          if (json.data.sdp !== undefined) {
+            if (json.data.sdp.type === 'offer') {
+              console.log('Received offer');
+              createPeer(new SessionDescription(json.data.sdp)); // for playback
+            }
+          }
+          if (json.data.candidate !== undefined) {
+            console.log('Received candidate');
+            clientPeer.addICE({
+              sdpMid: json.data.candidate.sdpMid,
+              sdpMLineIndex: json.data.candidate.sdpMLineIndex,
+              candidate: json.data.candidate.candidate
+            });
+          }            
+        }
+      } else {
+        console.warn('No message data');
+      } 
+    };
+
+    // closes the websocket
+    function closeSocket() {
+      if (socket !== undefined) {
+        unsubscribe();
+        closeSubscriber();
+        // close
+        setTimeout(function(){
+          console.log('Closing the socket');
+          socket.close();
+        }, 1000);
+      }
+    }
+
+    // resets the video element and clears the reference to the MediaStream
+    function resetLocal(id) {
+      if (!moz) {
+        document.getElementById(id + '_vid').src = "";
+      } else if (moz) {
+        document.getElementById(id + '_vid').mozSrcObject = undefined;
+      }
+    }
+
+    // checks to see if a stream is being published by name
+    function checkStreamAvailable() {
+      console.log('Availability check');
+      if (socket !== undefined) {
+        socket.send(JSON.stringify({
+          isAvailable: streamName,
+          type: streamType
+        }));
+      }
+    }
+
+    // creates the receive-only peer with the server app
+    function createPeer(remoteStreamSdp) {
+      clientPeer = RTCPeerConnection({
+        constraints : {},
+        offerSDP : remoteStreamSdp,
+        attachStream : clientStream,
+        iceServers: ice,
+        onICE : function(candidate) {
+          console.log('Sending candidate');
+          if (candidate.sdpMid.length === 0) {
+            candidate.sdpMid = candidate.sdpMLineIndex === 0 ? "audio" : "video";
+          }
+          socket.send(JSON.stringify({
+            handleCandidate: streamName,
+            requestId: subscriberId, 
+            data: {
+              candidate: candidate
+            }
+          }));
+        },
+        onRemoteStream : function(stream) {
+          if (stream) {
+            console.log('Remote stream: ' + stream);
+            // show the stream
+            if (!moz) {
+              document.getElementById(streamName + '_vid').src = window.URL.createObjectURL(stream);
+            } else if (moz) {
+              document.getElementById(streamName + '_vid').mozSrcObject = stream;
+            }
+          }
+        },
+        onRemoteStreamEnded : function(stream) {
+          console.log('Remote stream ended: ' + stream);
+          // var video = document.getElementById(stream.id);
+          // if(video) video.parentNode.removeChild(video);
+        },
+        onAnswerSDP : function(sdp) {
+          console.log('Sending answer sdp');
+          socket.send(JSON.stringify({
+            handleAnswer: streamName,
+            requestId: subscriberId,
+            data: {
+              sdp: sdp
+            }
+          }));
+        }
+      });
+    }
+
+    function subscribe() {
+      console.log('Sending subscribe request');
+      socket.send(JSON.stringify({
+        subscribe: streamName,
+        requestId: subscriberId
+      }));
+    }
+
+    function unsubscribe() {
+      console.log('Sending unsubscribe request');
+      socket.send(JSON.stringify({
+        unsubscribe: streamName,
+        requestId: subscriberId
+      }));
+    }    
+
+    // used to mute the speakers for the publish stream
+    function muteLocal(id) {
+      if (arguments.length == 0) {
+        id = streamName;
+      }
+      console.log('Mute: ' + id);
+      var video = document.getElementById(id + '_vid');
+      if (!video.muted) {
+        console.log('Mute audio: ' + id);
+        video.muted = true;
+      } else {
+        console.log('Unmute audio: ' + id); 
+        video.muted = false;
+      }
+    }
+
+    function closeSubscriber() {
+      console.log('Closing / stopping');
+      resetLocal(streamName);
+    }
+
+    function getQueryVariable(variable) {
+        var query = window.location.search.substring(1);
+        var vars = query.split('&');
+        for (var i = 0; i < vars.length; i++) {
+            var pair = vars[i].split('=');
+            if (decodeURIComponent(pair[0]) == variable) {
+                return decodeURIComponent(pair[1]);
+            }
+        }
+        console.log('Query variable ' + variable + ' not found');
+    }
+
+    function log(id, message) {
+      console.log(id + ' - ' + message);
+    }
+</script>
+</head>
+<body>
+<div id="container"></div>
+<script type="text/javascript">
+    // construct the divs
+    var div = document.createElement('div');
+    div.id = streamName;
+    div.style.cssText = 'width:320px;height:240px;background:#eee;';
+    document.getElementById('container').appendChild(div);
+    var vid = document.createElement('video');
+    vid.id = streamName + '_vid';
+    vid.autoplay = true;
+    document.getElementById(streamName).appendChild(vid);
+</script>
+<br /><br />
+Control
+<br />
+<button id="checkAndCreate" onclick="checkStreamAvailable()">Stream Lookup</button>
+<button id="subscribe" onclick="subscribe()">Subscribe</button>
+<button id="unsubscribe" onclick="unsubscribe()">Unsubscribe</button>
+<button id="mute" onclick="muteLocal()">Mute</button>
+<button id="closeAndExit" onclick="closeSocket()">Exit</button>
+</body>
+</html>
