@@ -5,6 +5,11 @@
 
   <display-name>webrtc</display-name>
 
+  <context-param>
+    <param-name>webAppRootKey</param-name>
+    <param-value>/webrtc</param-value>
+  </context-param>
+
   <servlet>
       <servlet-name>hls</servlet-name>
       <servlet-class>com.red5pro.stream.transform.mpegts.server.TSServlet</servlet-class>
