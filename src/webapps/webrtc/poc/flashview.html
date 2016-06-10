@@ -17,15 +17,16 @@
     var channelName = getQueryVariable('channelId');
     // type of stream for publish and playback
     var streamType = 'flash';
+    var host = getQueryVariable('host') || location.hostname;
 
     // swf stuff
     var params={};params.quality="high";params.allowscriptaccess="sameDomain";
     // participant 1
-    var a1vars={};a1vars.host=location.hostname;a1vars.appName=appName;a1vars.roomName=channelName;a1vars.streamName="publisher1";
+    var a1vars={};a1vars.host=host;a1vars.appName=appName;a1vars.roomName=channelName;a1vars.streamName="publisher1";
     var a1attrs={};a1attrs.id="publisher1";a1attrs.name="publisher1";a1attrs.align="middle";
     swfobject.embedSWF("subscriber.swf?" + subscriberId, "publisher1", "320", "240", "11.1.0", "", a1vars, params, a1attrs);
     // participant 2
-    var a2vars={};a2vars.host=location.hostname;a2vars.appName=appName;a2vars.roomName=channelName;a2vars.streamName="publisher2";
+    var a2vars={};a2vars.host=host;a2vars.appName=appName;a2vars.roomName=channelName;a2vars.streamName="publisher2";
     var a2attrs={};a2attrs.id="publisher2";a2attrs.name="publisher2";a2attrs.align="middle";
     swfobject.embedSWF("subscriber.swf?" + subscriberId, "publisher2", "320", "240", "11.1.0", "", a2vars, params, a2attrs);
 
@@ -33,7 +34,7 @@
     var wsprotocol = location.protocol == 'https:' ? 'wss' : 'ws';
     var wsport = location.protocol == 'https:' ? '8083' : '8081';
     var context = channelName ? appName + '/' + channelName : appName;
-    var socket = new WebSocket(wsprotocol + '://' + location.hostname + ':' + wsport + '/' + context + '?id=' + subscriberId);
+    var socket = new WebSocket(wsprotocol + '://' + host + ':' + wsport + '/' + context + '?id=' + subscriberId);
 
     // called when the socket opens; this opens the channel / room
     socket.onopen = function() {

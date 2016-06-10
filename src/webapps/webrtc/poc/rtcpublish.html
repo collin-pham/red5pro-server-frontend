@@ -13,6 +13,7 @@
     // keep track of who we are publisher-wise
     var streamName = getQueryVariable('streamName');
     var appName = getQueryVariable('app') || 'webrtc';
+    var host = getQueryVariable('host') || location.hostname;
     // our channel / room name
     var channelName = getQueryVariable('channelId');
     // primary peer which sends to the server, not other peers
@@ -54,7 +55,7 @@
     var wsprotocol = location.protocol == 'https:' ? 'wss' : 'ws';
     var wsport = location.protocol == 'https:' ? '8083' : '8081';
     var context = channelName ? appName + '/' + channelName : appName;
-    var socket = new WebSocket(wsprotocol + '://' + location.hostname + ':' + wsport + '/' + context + '?id=' + streamName);
+    var socket = new WebSocket(wsprotocol + '://' + host + ':' + wsport + '/' + context + '?id=' + streamName);
     // called when the socket opens; this opens the channel / room
     socket.onopen = function() {
       console.log('Socket opened');

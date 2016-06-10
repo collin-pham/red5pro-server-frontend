@@ -17,12 +17,13 @@
     var channelName = getQueryVariable('channelId');
     // type of stream for publish and playback
     var streamType = 'flash';
+    var host = getQueryVariable('host') || location.hostname;
 
     // communication channel
     var wsprotocol = location.protocol == 'https:' ? 'wss' : 'ws';
     var wsport = location.protocol == 'https:' ? '8083' : '8081';
     var context = channelName ? appName + '/' + channelName : appName;
-    var socket = new WebSocket(wsprotocol + '://' + location.hostname + ':' + wsport + '/' + context + '?id=' + streamName);
+    var socket = new WebSocket(wsprotocol + '://' + host + ':' + wsport + '/' + context + '?id=' + streamName);
 
     // called when the socket opens; this opens the channel / room
     socket.onopen = function() {
