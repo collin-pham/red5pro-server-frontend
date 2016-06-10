@@ -10,6 +10,7 @@
 <script type="text/javascript" src="swfobject.js"></script>
 <script type="text/javascript">
     "use strict"
+    var appName = getQueryVariable('app') || 'webrtc';
     // keep track of who we are publisher-wise
     var streamName = getQueryVariable('streamName');
     // our channel / room name
@@ -20,13 +21,14 @@
     // communication channel
     var wsprotocol = location.protocol == 'https:' ? 'wss' : 'ws';
     var wsport = location.protocol == 'https:' ? '8083' : '8081';
-    var socket = new WebSocket(wsprotocol + '://' + location.hostname + ':' + wsport + '/webrtc/' + channelName + '?id=' + streamName);
-    
+    var context = channelName ? appName + '/' + channelName : appName;
+    var socket = new WebSocket(wsprotocol + '://' + location.hostname + ':' + wsport + '/' + context + '?id=' + streamName);
+
     // called when the socket opens; this opens the channel / room
     socket.onopen = function() {
       console.log('Socket opened');
     };
-    
+
     // messages coming from the websocket
     socket.onmessage = function(message) {
       console.log(message);
@@ -58,7 +60,7 @@
         }
       } else {
         console.warn('No message data');
-      } 
+      }
     };
 
     // exits and cleans up

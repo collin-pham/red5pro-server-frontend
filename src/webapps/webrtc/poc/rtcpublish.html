@@ -7,11 +7,12 @@
 <meta name="author" content="Paul Gregoire">
 <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
 <link rel="stylesheet" type="text/css" href="default.css">
-<script src="RTCPeerConnection-v1.6.js"></script>   
+<script src="RTCPeerConnection-v1.6.js"></script>
 <script type="text/javascript">
     "use strict"
     // keep track of who we are publisher-wise
     var streamName = getQueryVariable('streamName');
+    var appName = getQueryVariable('app') || 'webrtc';
     // our channel / room name
     var channelName = getQueryVariable('channelId');
     // primary peer which sends to the server, not other peers
@@ -52,12 +53,13 @@
     // communication channel
     var wsprotocol = location.protocol == 'https:' ? 'wss' : 'ws';
     var wsport = location.protocol == 'https:' ? '8083' : '8081';
-    var socket = new WebSocket(wsprotocol + '://' + location.hostname + ':' + wsport + '/webrtc/' + channelName + '?id=' + streamName);
+    var context = channelName ? appName + '/' + channelName : appName;
+    var socket = new WebSocket(wsprotocol + '://' + location.hostname + ':' + wsport + '/' + context + '?id=' + streamName);
     // called when the socket opens; this opens the channel / room
     socket.onopen = function() {
       console.log('Socket opened');
     };
-    
+
     // messages coming from the websocket
     socket.onmessage = function(message) {
       console.log(message);
@@ -83,7 +85,7 @@
                 alert('Error: ' + json.data.message);
               }
             }
-          }  
+          }
           // data for the client peer
           if (json.data.sdp !== undefined) {
             if (json.data.sdp.type === 'answer') {
@@ -102,7 +104,7 @@
         }
       } else {
         console.warn('No message data');
-      } 
+      }
     };
 
     // closes the websocket
@@ -157,7 +159,7 @@
           console.log('Sending offer: ' + sdp);
           socket.send(JSON.stringify({
             handleOffer: streamName,
-            data: { 
+            data: {
               sdp: sdp
             }
           }));
@@ -183,7 +185,7 @@
         console.log('Mute audio: ' + id);
         video.muted = true;
       } else {
-        console.log('Unmute audio: ' + id); 
+        console.log('Unmute audio: ' + id);
         video.muted = false;
       }
     }
@@ -243,9 +245,9 @@
 
     // getUserMedia
     function getUserMedia() {
-        navigator.getUserMedia({audio:audio_constraints, video:video_constraints}, onsuccess, 
-          function(e) { 
-            console.error(e); 
+        navigator.getUserMedia({audio:audio_constraints, video:video_constraints}, onsuccess,
+          function(e) {
+            console.error(e);
           }
         );
         function onsuccess(stream) {
@@ -273,8 +275,8 @@ Control
 <button id="mute" onclick="muteParticipant()">Mute</button>
 <button id="closeAndExit" onclick="closeSocket()">Exit</button>
 <br />
-WebRTC Internals: 
-<a href="chrome://webrtc-internals" target="_blank">Chrome</a> | 
+WebRTC Internals:
+<a href="chrome://webrtc-internals" target="_blank">Chrome</a> |
 <a href="about:webrtc" target="_blank">Firefox</a>
 </body>
 </html>
