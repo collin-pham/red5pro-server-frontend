@@ -120,7 +120,7 @@
     // swf stuff
     var params={};params.quality="high";params.allowscriptaccess="sameDomain";
     // participant 1
-    var a1vars={};a1vars.host=location.hostname;a1vars.appName="webrtc";a1vars.roomName=channelName;a1vars.streamName=streamName;
+    var a1vars={};a1vars.host=location.hostname;a1vars.appName=apppName;a1vars.roomName=channelName;a1vars.streamName=streamName;
     var a1attrs={};a1attrs.id=streamName;a1attrs.name=streamName;a1attrs.align="middle";
     swfobject.embedSWF("publisher.swf", streamName, "320", "240", "11.1.0", "", a1vars, params, a1attrs);
 
